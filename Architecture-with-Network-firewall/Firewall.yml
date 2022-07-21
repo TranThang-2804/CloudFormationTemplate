@@ -1,0 +1,347 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This is the cloudformation for creating cloud architect with network firewall
+
+Parameters:
+  LatestAmiId:
+    Description: Latest EC2 AMI from Systems Manager Parameter Store
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+
+  VPCCidrBlock: 
+    Description: The Cidr block for the VPC
+    Type: String
+    Default: 10.0.0.0/16
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+  PublicSubnetCidrBlock: 
+    Description: The Cidr block for the first PublicSubnet
+    Type: String
+    Default: 10.0.1.0/24
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+  PublicSubnetAZ:
+    Description: The AZ that the Public subnet 1 belongs to
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1a
+
+  FirewallSubnetCidrBlock: 
+    Description: The Cidr block for the first PublicSubnet
+    Type: String
+    Default: 10.0.2.0/24
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+  FirewallSubnetAZ:
+    Description: The AZ that the Public subnet 1 belongs to
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1a
+
+  PrivateSubnetCidrBlock: 
+    Description: The Cidr block for the first Private Subnet
+    Type: String
+    Default: 10.0.3.0/24
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+  PrivateSubnetAZ:
+    Description: The AZ that the Private subnet 1 belongs to
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1a
+
+  MyKey:
+    Type: AWS::EC2::KeyPair::KeyName
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: 
+          default: "VPC configuration"
+        Parameters: 
+          - VPCCidrBlock
+      - Label: 
+          default: "PublicSubnet"
+        Parameters: 
+          - PublicSubnetCidrBlock
+          - PublicSubnetAZ
+      - Label: 
+          default: "PrivateSubnet"
+        Parameters: 
+          - PrivateSubnetCidrBlock
+          - PrivateSubnetAZ
+      - Label: 
+          default: "FirewallSubnet"
+        Parameters: 
+          - FirewallSubnetCidrBlock
+          - FirewallSubnetAZ
+
+Resources:
+  MyVpc:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: Management-TransitGW-VPC
+
+  PublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties: 
+      AvailabilityZone: !Ref PublicSubnetAZ
+      CidrBlock: !Ref PublicSubnetCidrBlock
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name
+          Value: TransitsGWVPC-public-subnet
+      VpcId: !Ref MyVpc
+
+  PrivateSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties: 
+      AvailabilityZone: !Ref PrivateSubnetAZ
+      CidrBlock: !Ref PrivateSubnetCidrBlock
+      MapPublicIpOnLaunch: false
+      Tags: 
+        - Key: Name
+          Value: TransitsGWVPC-private-subnet
+      VpcId: !Ref MyVpc
+
+  FirewallSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties: 
+      AvailabilityZone: !Ref FirewallSubnetAZ
+      CidrBlock: !Ref FirewallSubnetCidrBlock
+      MapPublicIpOnLaunch: false
+      Tags: 
+        - Key: Name
+          Value: TransitsGWVPC-firewall-subnet
+      VpcId: !Ref MyVpc
+
+  InternetGW:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: TransitGW-igw
+  
+  VpcIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref InternetGW
+      VpcId: !Ref MyVpc
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: TransitGWVPC-public-route-table
+      VpcId: 
+        Ref: MyVpc
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: TransitGWVPC-private-route-table
+      VpcId: 
+        Ref: MyVpc
+
+  FirewallRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: TransitGWVPC-private-route-table
+      VpcId: 
+        Ref: MyVpc
+
+  IGWRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: TransitGWVPC-private-route-table
+      VpcId: 
+        Ref: MyVpc
+
+  PublicRouteToFWEndpoint:
+    Type: AWS::EC2::Route
+    Properties: 
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref PublicRouteTable
+      VpcEndpointId: !Select [1, !Split [':', !Select [0, !GetAtt FirewallEndpoint.EndpointIds]]]
+
+  FirewallRouteToIGW:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref FirewallRouteTable
+      GatewayId: !Ref InternetGW
+
+  InternetGWRouteToFW:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: !Ref PublicSubnetCidrBlock
+      RouteTableId: !Ref IGWRouteTable
+      VpcEndpointId: !Select [1, !Split [':', !Select [0, !GetAtt FirewallEndpoint.EndpointIds]]]
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet
+
+  FirewallSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref FirewallRouteTable
+      SubnetId: !Ref FirewallSubnet
+
+  InternetGWRouteTableAssociation:
+    Type: AWS::EC2::GatewayRouteTableAssociation
+    Properties: 
+      GatewayId: !Ref InternetGW
+      RouteTableId: !Ref IGWRouteTable
+
+  FirewallEndpoint:
+    Type: AWS::NetworkFirewall::Firewall
+    Properties: 
+      DeleteProtection: false
+      Description: This is my vpc firewall, all trafic should go through this endpoint
+      FirewallName: ThangTD-Firewall
+      FirewallPolicyArn: !Ref NetworkFirewallPolicy
+      FirewallPolicyChangeProtection: false
+      SubnetChangeProtection: false
+      SubnetMappings: 
+        - SubnetId: !Ref FirewallSubnet
+      Tags: 
+        - Key: Name
+          Value: Thangtd-firewall-endpoint
+      VpcId: !Ref MyVpc
+
+  NetworkFirewallPolicy: 
+    Type: AWS::NetworkFirewall::FirewallPolicy
+    Properties: 
+      Description: The policies use for Firewall
+      FirewallPolicy: 
+        StatefulEngineOptions: 
+          RuleOrder: DEFAULT_ACTION_ORDER
+        StatefulRuleGroupReferences: 
+          - ResourceArn: !Ref NetworkFirewallStateFulRuleGroup
+        StatelessDefaultActions: 
+          - aws:forward_to_sfe
+        StatelessFragmentDefaultActions: 
+          - aws:forward_to_sfe
+
+      FirewallPolicyName: ThangTd-firewall-policy
+      Tags: 
+        - Key: Name
+          Value: ThangTd-firewall-policy
+
+  NetworkFirewallStateFulRuleGroup:
+    Type: AWS::NetworkFirewall::RuleGroup
+    Properties: 
+      RuleGroupName: ThangTD-StateFul-rulegroup
+      Description: This is the rulegroup used for firewall stateful policy
+      Type: STATEFUL
+      Capacity: 100
+      RuleGroup: 
+        RulesSource: 
+          StatefulRules: 
+            # drop ping request from outside VPC
+            - Action: DROP
+              Header: 
+                Destination: 10.0.0.0/16
+                DestinationPort: ANY
+                Direction: FORWARD
+                Protocol: ICMP
+                Source: ANY
+                SourcePort: ANY
+              RuleOptions: 
+                - Keyword: sid:1
+            # Allow ping request from inside VPC to internet
+            - Action: PASS
+              Header: 
+                Destination: ANY
+                DestinationPort: ANY
+                Direction: FORWARD
+                Protocol: ICMP
+                Source: 10.0.0.0/16
+                SourcePort: ANY
+              RuleOptions: 
+                - Keyword: sid:2
+            # Allow ssh request from outside VPC
+            - Action: PASS
+              Header: 
+                Destination: 10.0.0.0/16
+                DestinationPort: ANY
+                Direction: FORWARD
+                Protocol: SSH
+                Source: ANY
+                SourcePort: ANY
+              RuleOptions: 
+                - Keyword: sid:3
+        StatefulRuleOptions: 
+          RuleOrder: DEFAULT_ACTION_ORDER
+      Tags: 
+        - Key: Name
+          Value: Thangtd-firewall-stateful-rule-group
+
+  PublicSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow all trafic to client host
+        GroupName: PublicSG
+        VpcId: !Ref MyVpc
+        SecurityGroupIngress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+        SecurityGroupEgress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+  
+  PrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow no trafic to client host
+      GroupName: PrivateSG
+      VpcId: !Ref MyVpc
+
+  PublicEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      KeyName: !Ref MyKey
+      Monitoring: false
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: 
+        - !GetAtt PublicSecurityGroup.GroupId
+      Tags: 
+        - Key: Name
+          Value: Thangtd-ec2
+
+Outputs:
+  Vpc:
+    Value: !Ref MyVpc
+    Description: The VPC of the infras
+
+  PublicSubnet:
+    Value: !Ref PublicSubnet
+    Description: The public subnet
+
+  PrivateSubnet:
+    Value: !Ref PrivateSubnet
+    Description: The private subnet
